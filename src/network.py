@@ -12,26 +12,69 @@ from torchvision.models.alexnet import AlexNet
 import torch
 
 # Custom packages
-from src.metric import MyAccuracy
+from src.metric import MyAccuracy, MyF1Score
 import src.config as cfg
 from src.util import show_setting
 
 
 # [TODO: Optional] Rewrite this class if you want
+import torch
+from torch import nn
+from torchvision.models.alexnet import AlexNet
+
+
 class MyNetwork(AlexNet):
-    def __init__(self):
+    def __init__(self, num_classes=200, dropout=0.5):
         super().__init__()
 
-        # [TODO] Modify feature extractor part in AlexNet
+        # 수정된 feature extractor
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 96, kernel_size=11, stride=4),  # padding 없이
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
 
+            # NORM1은 생략 (현대에는 거의 사용하지 않음)
+
+            nn.Conv2d(96, 256, kernel_size=5, padding=2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+
+            # NORM2 생략
+
+            nn.Conv2d(256, 384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(384, 384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(384, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2)
+        )
+
+        # AdaptiveAvgPool은 그대로 사용 (기존 AlexNet 구조 따름)
+        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
+
+        # Fully-connected classifier 수정
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(256 * 6 * 6, 4096),
+            nn.ReLU(inplace=True),
+
+            nn.Dropout(p=dropout),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+
+            nn.Linear(4096, num_classes)
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # [TODO: Optional] Modify this as well if you want
         x = self.features(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
+
 
 
 class SimpleClassifier(LightningModule):
@@ -55,7 +98,11 @@ class SimpleClassifier(LightningModule):
         self.loss_fn = nn.CrossEntropyLoss()
 
         # Metric
-        self.accuracy = MyAccuracy()
+        self.train_accuracy = MyAccuracy()
+        self.train_f1score = MyF1Score(num_classes=num_classes)
+
+        self.val_accuracy = MyAccuracy()
+        self.val_f1score = MyF1Score(num_classes=num_classes)
 
         # Hyperparameters
         self.save_hyperparameters()
@@ -78,16 +125,25 @@ class SimpleClassifier(LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
-        accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/train': loss, 'accuracy/train': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # 각 metric 업데이트
+        self.train_accuracy.update(scores, y)
+        self.train_f1score.update(scores, y)
+        self.log_dict({
+            'loss/train': loss,
+            'accuracy/train': self.train_accuracy,
+            'f1/train': self.train_f1score,
+        }, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, scores, y = self._common_step(batch)
-        accuracy = self.accuracy(scores, y)
-        self.log_dict({'loss/val': loss, 'accuracy/val': accuracy},
-                      on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.val_accuracy.update(scores, y)
+        self.val_f1score.update(scores, y)
+        self.log_dict({
+            'loss/val': loss,
+            'accuracy/val': self.val_accuracy,
+            'f1/val': self.val_f1score,
+        }, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self._wandb_log_image(batch, batch_idx, scores, frequency = cfg.WANDB_IMG_LOG_FREQ)
 
     def _common_step(self, batch):
