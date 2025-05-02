@@ -5,7 +5,7 @@
 """
 # PyTorch & Pytorch Lightning
 from lightning.pytorch.loggers.wandb import WandbLogger
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from lightning import Trainer
 import torch
 
@@ -38,15 +38,17 @@ if __name__ == "__main__":
     )
 
     trainer = Trainer(
-        accelerator = cfg.ACCELERATOR,
-        devices = cfg.DEVICES,
-        precision = cfg.PRECISION_STR,
-        max_epochs = cfg.NUM_EPOCHS,
-        check_val_every_n_epoch = cfg.VAL_EVERY_N_EPOCH,
-        logger = wandb_logger,
-        callbacks = [
-            LearningRateMonitor(logging_interval='epoch'),
-            ModelCheckpoint(save_top_k=1, monitor='accuracy/val', mode='max'),
+         accelerator = cfg.ACCELERATOR,
+         devices = cfg.DEVICES,
+         precision = cfg.PRECISION_STR,
+         max_epochs = cfg.NUM_EPOCHS,
+         check_val_every_n_epoch = cfg.VAL_EVERY_N_EPOCH,
+         accumulate_grad_batches = 4,        
+         logger = wandb_logger,
+         callbacks = [
+             LearningRateMonitor(logging_interval='epoch'),
+             ModelCheckpoint(save_top_k=1, monitor='accuracy/val', mode='max'),
+             EarlyStopping(monitor='accuracy/val', patience=10, mode='max'), 
         ],
     )
 

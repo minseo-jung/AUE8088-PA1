@@ -33,13 +33,9 @@ class MyNetwork(AlexNet):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
 
-            # NORM1은 생략 (현대에는 거의 사용하지 않음)
-
             nn.Conv2d(96, 256, kernel_size=5, padding=2),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
-
-            # NORM2 생략
 
             nn.Conv2d(256, 384, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -52,10 +48,8 @@ class MyNetwork(AlexNet):
             nn.MaxPool2d(kernel_size=3, stride=2)
         )
 
-        # AdaptiveAvgPool은 그대로 사용 (기존 AlexNet 구조 따름)
         self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
 
-        # Fully-connected classifier 수정
         self.classifier = nn.Sequential(
             nn.Dropout(p=dropout),
             nn.Linear(256 * 6 * 6, 4096),
@@ -92,10 +86,30 @@ class SimpleClassifier(LightningModule):
         else:
             models_list = models.list_models()
             assert model_name in models_list, f'Unknown model name: {model_name}. Choose one from {", ".join(models_list)}'
-            self.model = models.get_model(model_name, num_classes=num_classes)
+            # 사전학습 가중치 로드
+            # 1) ImageNet-1k 가중치로 백본 로드 (num_classes=1000)
+            self.model = models.get_model(model_name, weights='DEFAULT')
+    
+            # 2) 백본 종류별로 마지막 레이어 찾아 200-class로 교체
+            in_features = None
+            if hasattr(self.model, "classifier"):                
+                if isinstance(self.model.classifier, nn.Sequential):
+                    in_features = self.model.classifier[-1].in_features
+                    self.model.classifier[-1] = nn.Linear(in_features, num_classes)
+                else:  
+                    in_features = self.model.classifier.in_features
+                    self.model.classifier = nn.Linear(in_features, num_classes)
+            elif hasattr(self.model, "fc"):                 
+                in_features = self.model.fc.in_features
+                self.model.fc = nn.Linear(in_features, num_classes)
+            elif hasattr(self.model, "head"):              
+                in_features = self.model.head.in_features
+                self.model.head = nn.Linear(in_features, num_classes)
+            else:
+                raise ValueError(f"모델 {model_name} 의 분류 층을 찾을 수 없습니다.")
 
         # Loss function
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
 
         # Metric
         self.train_accuracy = MyAccuracy()

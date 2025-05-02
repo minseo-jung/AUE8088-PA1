@@ -9,6 +9,9 @@ import wget
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.transforms.autoaugment import RandAugment    
+import torch                                                 
+import random
 from torchvision.datasets import ImageFolder
 
 # Custom packages
@@ -44,6 +47,8 @@ class TinyImageNetDatasetModule(LightningDataModule):
             transforms.RandomRotation(cfg.IMAGE_ROTATION),
             transforms.RandomHorizontalFlip(cfg.IMAGE_FLIP_PROB),
             transforms.RandomCrop(cfg.IMAGE_NUM_CROPS, padding=cfg.IMAGE_PAD_CROPS),
+            RandAugment(num_ops=2, magnitude=9),      
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),  
             transforms.ToTensor(),
             transforms.Normalize(cfg.IMAGE_MEAN, cfg.IMAGE_STD),
         ])
